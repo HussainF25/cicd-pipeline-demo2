@@ -1,6 +1,6 @@
-# CI/CD pipeline:
+# CI/CD pipeline for the Student Management System:
 #   push → security scan + unit tests → build zip → upload to S3 → deploy to EC2 → verify production
-name: CI/CD Pipeline
+name: CI/CD Pipeline - Student Management System
 
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
         run: pip install --quiet bandit pip-audit
 
       - name: SAST – Bandit (Python static code analysis)
-        run: bandit -r . -x ./tests,./.venv -ll
+        run: bandit -r backend -ll
 
       - name: Dependency vulnerability scan – pip-audit
         run: pip-audit -r requirements.txt --desc
@@ -89,10 +89,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Work out version (APP_VERSION from app.py + build number)
+      - name: Work out version (APP_VERSION from backend/version.py + build number)
         id: version
         run: |
-          BASE=$(grep -E '^APP_VERSION' app.py | cut -d'"' -f2)
+          BASE=$(grep -E '^APP_VERSION' backend/version.py | cut -d'"' -f2)
           VERSION="${BASE}.${{ github.run_number }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building version $VERSION"
@@ -113,7 +113,7 @@ jobs:
         run: |
           PACKAGE="build-v${{ steps.version.outputs.version }}.zip"
           mkdir -p dist
-          zip -r "dist/$PACKAGE" app.py templates requirements.txt deploy build_info.json
+          zip -r "dist/$PACKAGE" backend frontend data requirements.txt deploy build_info.json -x "*/__pycache__/*"
           unzip -l "dist/$PACKAGE"
           echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
 

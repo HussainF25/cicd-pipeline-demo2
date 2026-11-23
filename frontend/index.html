@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registry – Northfield University</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- SIGN IN -->
+<div id="login" class="login" hidden>
+  <form id="login-form" class="login-card">
+    <div class="brand dark">
+      <div class="crest" aria-hidden="true">N</div>
+      <div><strong>Registry</strong><span>Northfield University</span></div>
+    </div>
+    <div class="release" data-release hidden>
+      <span class="release-version" data-version></span>
+      <span class="release-note" data-release-note></span>
+    </div>
+    <h1>Sign in</h1>
+    <p class="muted">Use your staff account to manage students, attendance and results.</p>
+    <label>Email <input name="email" type="email" required autocomplete="username" value="admin@northfield.edu"></label>
+    <label>Password <input name="password" type="password" required autocomplete="current-password"></label>
+    <p id="login-error" class="error" hidden></p>
+    <button type="submit" class="btn primary wide">Sign in</button>
+    <p class="hint-box">Demo account: admin@northfield.edu, password <b>admin123</b></p>
+  </form>
+</div>
+
+<div id="app" class="shell" hidden>
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="crest" aria-hidden="true">N</div>
+      <div><strong>Registry</strong><span>Northfield University</span></div>
+    </div>
+    <nav aria-label="Main">
+      <a href="#students" class="nav-link" data-view="students">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM21 19v-1a4 4 0 0 0-3-3.9M16 4.1a3 3 0 0 1 0 5.8"/></svg>
+        Students
+      </a>
+      <a href="#attendance" class="nav-link" data-view="attendance">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v3M16 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM9 15l2 2 4-4"/></svg>
+        Attendance
+      </a>
+      <a href="#results" class="nav-link" data-view="results">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM14 3v5h5M9 13h6M9 17h4"/></svg>
+        Results
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="release-chip" data-release hidden title="Deployed by the CI/CD pipeline">
+        <span class="release-version" data-version></span>
+        <span class="release-build" data-build></span>
+      </div>
+      <div class="user">
+        <div class="avatar small" style="--tint:#B8862B" id="user-initials">AO</div>
+        <div class="user-text"><strong id="user-name">Admin Office</strong><span id="user-role">Registrar</span></div>
+        <button class="signout" id="signout" title="Sign out" aria-label="Sign out">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="page-title">Students</h1>
+        <p id="page-sub" class="sub"></p>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" id="bell" aria-label="Sent notifications" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>
+          <span id="bell-badge" class="badge-dot" hidden></span>
+        </button>
+        <div id="notif-panel" class="notif-panel" hidden>
+          <div class="notif-head"><strong>Sent notifications</strong><span>Emails sent to students</span></div>
+          <ul id="notif-list"></ul>
+        </div>
+      </div>
+    </header>
+
+    <!-- STUDENTS -->
+    <section id="view-students" class="view">
+      <dl class="stats" id="student-stats"></dl>
+      <div class="toolbar">
+        <div class="field-row">
+          <div class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.3-4.3M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg>
+            <input id="student-search" type="search" placeholder="Search name, email or roll number" aria-label="Search students">
+          </div>
+          <select id="program-filter" aria-label="Filter by program"></select>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn ghost" id="export-students">Export CSV</button>
+          <button class="btn primary" id="open-add">Add student</button>
+        </div>
+      </div>
+      <div class="surface">
+        <table class="table">
+          <thead><tr><th>Student</th><th>Roll no.</th><th>Program</th><th>Courses</th><th class="num">Attendance</th></tr></thead>
+          <tbody id="students-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ATTENDANCE -->
+    <section id="view-attendance" class="view">
+      <div class="toolbar">
+        <div class="field-row">
+          <label>Course <select id="att-course" class="course-select"></select></label>
+          <label>Date <input id="att-date" type="date"></label>
+          <button class="btn link new-course">New course</button>
+        </div>
+        <div class="toolbar-right">
+          <span id="att-count" class="muted"></span>
+          <button class="btn ghost" id="att-all">Mark all present</button>
+          <button class="btn primary" id="att-save">Save attendance</button>
+        </div>
+      </div>
+      <div class="split">
+        <div class="surface">
+          <h2 class="surface-title">Class register</h2>
+          <ul id="roster" class="roster"></ul>
+        </div>
+        <div class="surface">
+          <h2 class="surface-title">Attendance to date</h2>
+          <p class="muted small-text">Students below 75% are emailed automatically when the register is saved.</p>
+          <ul id="att-summary" class="bars"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section id="view-results" class="view">
+      <div class="toolbar">
+        <div class="field-row">
+          <label>Course <select id="res-course" class="course-select"></select></label>
+          <button class="btn link new-course">New course</button>
+        </div>
+        <div class="toolbar-right">
+          <span id="res-count" class="muted"></span>
+          <button class="btn ghost" id="export-results">Export CSV</button>
+          <button class="btn ghost" id="res-save">Save marks</button>
+          <button class="btn primary" id="res-publish">Publish results</button>
+        </div>
+      </div>
+      <dl class="stats" id="result-stats"></dl>
+      <div class="surface">
+        <table class="table">
+          <thead><tr><th>Student</th><th class="marks-col">Marks</th><th>Grade</th><th>Status</th></tr></thead>
+          <tbody id="gradebook"></tbody>
+        </table>
+      </div>
+      <p class="muted small-text below">Publishing emails each student their grade. Grades: A 85+, B 70+, C 55+, D 45+, F below 45. Pass mark is 45.</p>
+    </section>
+  </div>
+</div>
+
+<!-- STUDENT PROFILE PANEL -->
+<div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+<aside id="drawer" class="drawer" hidden aria-label="Student profile">
+  <div id="drawer-body"></div>
+</aside>
+
+<!-- ADD / EDIT STUDENT -->
+<dialog id="student-dialog">
+  <form id="student-form">
+    <h2 id="student-dialog-title">Add student</h2>
+    <p class="muted" id="student-dialog-sub">They’ll get a welcome email with their roll number.</p>
+    <label>Full name <input name="name" required autocomplete="off"></label>
+    <label>University email <input name="email" type="email" required autocomplete="off"></label>
+    <label>Program
+      <select name="program">
+        <option>MS Data Science</option><option>BS Computer Science</option><option>MBA</option><option>BS Economics</option>
+      </select>
+    </label>
+    <fieldset class="course-picks">
+      <legend>Enrolled courses</legend>
+      <div id="course-checks"></div>
+    </fieldset>
+    <p id="student-error" class="error" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="submit" class="btn primary" id="student-submit">Add student</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- NEW COURSE -->
+<dialog id="course-dialog">
+  <form id="course-form">
+    <h2>New course</h2>
+    <p class="muted">Students can be enrolled from their profile once it exists.</p>
+    <label>Course code <input name="code" required placeholder="DS504" maxlength="12" autocomplete="off"></label>
+    <label>Course title <input name="title" required placeholder="Deep Learning" autocomplete="off"></label>
+    <p id="course-error" class="error" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="submit" class="btn primary">Create course</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- CONFIRM DELETE -->
+<dialog id="confirm-dialog">
+  <form id="confirm-form">
+    <h2>Delete student?</h2>
+    <p id="confirm-text" class="muted"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" data-close>Keep student</button>
+      <button type="submit" class="btn danger">Delete student</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- PRINTABLE TRANSCRIPT -->
+<div id="print-area"></div>
+
+<!-- SYSTEM VIEW STRIP: only shown at http://127.0.0.1:8000/?system -->
+<footer id="system-strip" class="system-strip" hidden aria-live="polite">
+  <ol class="path">
+    <li data-node="browser">Browser</li><li data-node="api">Backend API</li><li data-node="cache">Cache</li>
+    <li data-node="db">SQLite database</li><li data-node="queue">Queue</li><li data-node="worker">Worker</li>
+  </ol>
+  <p id="trace-text">Each request lights up the parts of the system it used.</p>
+</footer>
+
+<div id="toast" role="status"></div>
+<script src="version.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
