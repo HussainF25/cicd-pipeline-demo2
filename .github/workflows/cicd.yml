@@ -1,0 +1,236 @@
+# CI/CD pipeline:
+#   push → security scan + unit tests → build zip → upload to S3 → deploy to EC2 → verify production
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  S3_BUCKET: ${{ vars.S3_BUCKET }}
+  EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ---------------------------------------------------------------- DevSecOps
+  security-scan:
+    name: 🔒 Security Scan (SAST, deps, secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history so secret scanning checks every commit
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install scanners
+        run: pip install --quiet bandit pip-audit
+
+      - name: SAST – Bandit (Python static code analysis)
+        run: bandit -r . -x ./tests,./.venv -ll
+
+      - name: Dependency vulnerability scan – pip-audit
+        run: pip-audit -r requirements.txt --desc
+
+      - name: Secret scan – Gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks git . --redact --verbose
+
+  # --------------------------------------------------------------- Unit tests
+  unit-tests:
+    name: 🧪 Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pytest (pipeline stops here if any test fails)
+        run: pytest -v --junitxml=test-results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: test-results.xml
+
+  # -------------------------------------------------- Build + upload to S3
+  build:
+    name: 📦 Build & Upload to S3
+    needs: [security-scan, unit-tests]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      package: ${{ steps.package.outputs.package }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Work out version (APP_VERSION from app.py + build number)
+        id: version
+        run: |
+          BASE=$(grep -E '^APP_VERSION' app.py | cut -d'"' -f2)
+          VERSION="${BASE}.${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
+      - name: Write build metadata
+        run: |
+          jq -n \
+            --arg version "${{ steps.version.outputs.version }}" \
+            --arg build_number "${{ github.run_number }}" \
+            --arg commit "${{ github.sha }}" \
+            --arg built_at "$(date -u '+%Y-%m-%d %H:%M')" \
+            '{version: $version, build_number: $build_number, commit: $commit, built_at: $built_at}' \
+            > build_info.json
+          cat build_info.json
+
+      - name: Package application
+        id: package
+        run: |
+          PACKAGE="build-v${{ steps.version.outputs.version }}.zip"
+          mkdir -p dist
+          zip -r "dist/$PACKAGE" app.py templates requirements.txt deploy build_info.json
+          unzip -l "dist/$PACKAGE"
+          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Keep a copy as a GitHub artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.package }}
+          path: dist/${{ steps.package.outputs.package }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload build to S3
+        run: |
+          PACKAGE="${{ steps.package.outputs.package }}"
+          aws s3 cp "dist/$PACKAGE" "s3://$S3_BUCKET/builds/$PACKAGE"
+          aws s3 cp "dist/$PACKAGE" "s3://$S3_BUCKET/builds/latest.zip"
+          {
+            echo "### 📦 Artifact stored in S3"
+            echo "- \`s3://$S3_BUCKET/builds/$PACKAGE\`"
+            echo "- \`s3://$S3_BUCKET/builds/latest.zip\` (what gets deployed)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          aws s3 ls "s3://$S3_BUCKET/builds/"
+
+  # ------------------------------------------------------ Deploy to EC2
+  deploy:
+    name: 🚀 Deploy latest build to EC2
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Tell the server to pull latest.zip from S3 and install it (SSM Run Command)
+        id: send
+        run: |
+          jq -n --arg bucket "$S3_BUCKET" --arg region "$AWS_REGION" '{
+            executionTimeout: ["600"],
+            commands: [
+              "set -e",
+              "rm -rf /tmp/cicd-deploy && mkdir -p /tmp/cicd-deploy && cd /tmp/cicd-deploy",
+              "aws s3 cp s3://\($bucket)/builds/latest.zip build.zip --region \($region) --only-show-errors",
+              "python3 -m zipfile -e build.zip .",
+              "bash deploy/deploy.sh"
+            ]}' > params.json
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "GitHub Actions run ${{ github.run_number }} (v${{ needs.build.outputs.version }})" \
+            --parameters file://params.json \
+            --query "Command.CommandId" --output text)
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command sent: $COMMAND_ID"
+
+      - name: Wait for deployment to finish
+        run: |
+          CMD="${{ steps.send.outputs.command_id }}"
+          for _ in $(seq 1 60); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD" --instance-id "$EC2_INSTANCE_ID" \
+                       --query Status --output text 2>/dev/null || echo Pending)
+            echo "Deployment status: $STATUS"
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 5
+          done
+          echo "------------- server output -------------"
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$EC2_INSTANCE_ID" \
+            --query StandardOutputContent --output text
+          echo "------------- server errors -------------"
+          aws ssm get-command-invocation --command-id "$CMD" --instance-id "$EC2_INSTANCE_ID" \
+            --query StandardErrorContent --output text
+          [ "$STATUS" = "Success" ]
+
+  # --------------------------------------------------- Verify production
+  verify-production:
+    name: ✅ Verify Production
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.url.outputs.url }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Find the server's public address
+        id: url
+        run: |
+          IP=$(aws ec2 describe-instances --instance-ids "$EC2_INSTANCE_ID" \
+                 --query "Reservations[0].Instances[0].PublicIpAddress" --output text)
+          echo "url=http://$IP" >> "$GITHUB_OUTPUT"
+
+      - name: Check the live site is running the new version
+        run: |
+          URL="${{ steps.url.outputs.url }}"
+          EXPECTED="${{ needs.build.outputs.version }}"
+          for _ in $(seq 1 10); do
+            LIVE=$(curl -fsS "$URL/health" | jq -r .version || true)
+            echo "Live version: ${LIVE:-unreachable} (expected $EXPECTED)"
+            if [ "$LIVE" = "$EXPECTED" ]; then
+              printf '## ✅ v%s is live in production\nOpen it: %s\n' "$EXPECTED" "$URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Production is not serving v$EXPECTED"
+          exit 1

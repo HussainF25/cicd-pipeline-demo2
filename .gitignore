@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+dist/
+build_info.json
+test-results.xml
+*.csv
+*.pem
+.env
+.DS_Store
