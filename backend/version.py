@@ -7,8 +7,8 @@ and the new version and release note appear on the live site.
 import json
 from pathlib import Path
 
-APP_VERSION = "1.0"
-RELEASE_NOTE = "First release, deployed automatically by the CI/CD pipeline"
+APP_VERSION = "1.1"
+RELEASE_NOTE = "New: results are published through the queue"
 
 BUILD_INFO_FILE = Path(__file__).resolve().parent.parent / "build_info.json"
 
